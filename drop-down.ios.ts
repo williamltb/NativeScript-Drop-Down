@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ***************************************************************************** */
 
-import { TextField } from "ui/text-field";
+import { Label } from "ui/label";
 import { ListPicker } from "ui/list-picker";
 import * as dependencyObservable from "ui/core/dependency-observable";
 import { Observable, PropertyChangeData } from "data/observable";
@@ -24,11 +24,15 @@ import * as utils from "utils/utils";
 import { Font } from "ui/styling/font";
 import { Span } from "text/span";
 import { FormattedString } from "text/formatted-string";
+import { Color } from "color";
 import * as enums from "ui/enums";
+import * as types from "utils/types";
+import { SelectedIndexChangedEventData } from "nativescript-drop-down";
 
 global.moduleMerge(common, exports);
 
 const TOOLBAR_HEIGHT = 44;
+const HINT_COLOR = new Color("#3904041E");
 
 export class DropDown extends common.DropDown {
     private _toolbar: UIToolbar;
@@ -37,19 +41,18 @@ export class DropDown extends common.DropDown {
     private _doneTapDelegate: TapHandler;
     private _accessoryViewVisible: boolean;
 
-    public _textField: TextField;
+    public _label: DropDownLabelWrapper;
     public _listPicker: ListPicker;
 
     constructor() {
         super();
 
-        let application = utils.ios.getter(UIScreen, UIScreen.mainScreen);
-        let applicationFrame = application.applicationFrame;
+        let applicationFrame = utils.ios.getter(UIScreen, UIScreen.mainScreen).applicationFrame;
 
-        this._textField = new TextField();
+        this._label = new DropDownLabelWrapper(this);
         this._listPicker = new ListPicker();
 
-        (this._listPicker as any)._delegate = DropDownListPickerDelegateImpl.initWithOwner(this);
+        (this._listPicker as any)._delegate = DropDownListPickerDelegateImpl.initWithOwner(this);       
         this._flexToolbarSpace = UIBarButtonItem.alloc().initWithBarButtonSystemItemTargetAction(UIBarButtonSystemItem.FlexibleSpace, null, null);
         this._doneTapDelegate = TapHandler.initWithOwner(new WeakRef(this));
         this._doneButton = UIBarButtonItem.alloc().initWithBarButtonSystemItemTargetAction(UIBarButtonSystemItem.Done, this._doneTapDelegate, "tap");
@@ -58,14 +61,14 @@ export class DropDown extends common.DropDown {
         this._toolbar = UIToolbar.alloc().initWithFrame(CGRectMake(0, 0, applicationFrame.size.width, TOOLBAR_HEIGHT));
         this._toolbar.autoresizingMask = UIViewAutoresizing.FlexibleWidth;
 
-        let nsArray = new NSMutableArray<UIBarButtonItem>({ capacity: 2 });
+        let nsArray = NSMutableArray.alloc<UIBarButtonItem>().init();
         nsArray.addObject(this._flexToolbarSpace);
         nsArray.addObject(this._doneButton);
         this._toolbar.setItemsAnimated(nsArray, false);
     }
 
-    get ios(): UITextField {
-        return this._textField.ios;
+    get ios(): UILabel {
+        return this._label.ios;
     }
 
     get accessoryViewVisible(): boolean {
@@ -83,7 +86,7 @@ export class DropDown extends common.DropDown {
     public onLoaded() {
         super.onLoaded();
 
-        this._textField.onLoaded();
+        this._label.onLoaded();
         this._listPicker.onLoaded();
         this._listPicker.on(Observable.propertyChangeEvent,
             (data: PropertyChangeData) => {
@@ -93,6 +96,7 @@ export class DropDown extends common.DropDown {
             });
         this.ios.inputView = this._listPicker.ios;
         this._showHideAccessoryView();
+        
     }
 
     public onUnloaded() {
@@ -101,28 +105,35 @@ export class DropDown extends common.DropDown {
 
         this._listPicker.off(Observable.propertyChangeEvent);
 
-        this._textField.onUnloaded();
+        this._label.onUnloaded();
         this._listPicker.onUnloaded();
 
         super.onUnloaded();
     }
 
     public open() {
-        this._textField.focus();
+        this._label.ios.becomeFirstResponder();
     }
 
     public _onItemsPropertyChanged(data: dependencyObservable.PropertyChangeData) {
+        let isNothingSelected: boolean = types.isNullOrUndefined(this.selectedIndex);
+
         this._listPicker.items = data.newValue;
+
+        // HACK: This is needed, because in the listpicker module Telerik automatically selects the first item if the current selectedIndex is undefined.         
+        if (isNothingSelected) {
+            this.selectedIndex = null;
+        }
     }
 
     public _onHintPropertyChanged(data: dependencyObservable.PropertyChangeData) {
-        this._textField.hint = data.newValue;
+       this._label.hint = data.newValue;
     }
 
     public _onSelectedIndexPropertyChanged(data: dependencyObservable.PropertyChangeData) {
         super._onSelectedIndexPropertyChanged(data);
         this._listPicker.selectedIndex = data.newValue;
-        this._textField.text = (this.items && this.items.getItem ? this.items.getItem(data.newValue) : this.items[data.newValue]);
+        this._label.text = (this.items && this.items.getItem ? this.items.getItem(data.newValue) : this.items[data.newValue]);
     }
 }
 
@@ -149,7 +160,7 @@ class DropDownListPickerDelegateImpl extends NSObject implements UIPickerViewDel
     public static ObjCProtocols = [UIPickerViewDelegate];
 
     private _owner: WeakRef<DropDown>;
-
+    
     public static initWithOwner(owner: DropDown): DropDownListPickerDelegateImpl {
         let delegate = <DropDownListPickerDelegateImpl>DropDownListPickerDelegateImpl.new();
         delegate._owner = new WeakRef(owner);
@@ -182,94 +193,227 @@ class DropDownListPickerDelegateImpl extends NSObject implements UIPickerViewDel
     public pickerViewDidSelectRowInComponent(pickerView: UIPickerView, row: number, component: number): void {
         let owner = this._owner.get();
         if (owner) {
+            let oldIndex = owner.selectedIndex;
+
             owner._listPicker._onPropertyChangedFromNative(ListPicker.selectedIndexProperty, row);
+
+            if (row !== oldIndex) {
+                owner.notify(<SelectedIndexChangedEventData>{
+                    eventName: common.DropDown.selectedIndexChangedEvent,
+                    object: owner,
+                    oldIndex: oldIndex,
+                    newIndex: row
+                });
+            }
         }
     }
 }
+
+class DropDownLabelWrapper extends Label {
+    private _ios: UILabel;
+    private _hint: string = "";
+    private _hasText: boolean = true;
+    private _internalColor: Color;
+
+    constructor(dropDown: DropDown) {
+        super();
+
+        this._ios = DropDownLabel.initWithOwner(dropDown);
+        this._ios.userInteractionEnabled = true;
+    }
+
+    public onLoaded() {
+        super.onLoaded();
+        this.internalColor = this.color;
+        this.text = null;
+    }
+
+    get text(): string {
+        return this._ios.text;
+    }
+    set text(value: string) {
+        let actualText = value || this._hint || "";
+
+        this._hasText = !types.isNullOrUndefined(value);
+        this._ios.text = (actualText === "" ? " " : actualText); // HACK: If empty use <space> so the label does not collapse
+        
+        this._refreshColor();
+    }
+
+    get hint(): string {
+        return this._hint;
+    }
+    set hint(value: string) {
+        this._hint = value;
+
+        if (!this._hasText) {
+            this._ios.text = value;
+        }
+    }
+
+    get internalColor(): Color {
+        return this._internalColor;
+    }
+    set internalColor(value: Color) {
+        this._internalColor = value;
+        this._refreshColor();
+    }
+
+    private _refreshColor() {
+        this.color = (this._hasText ? this._internalColor : HINT_COLOR);
+    }
+}
+
+class DropDownLabel extends TNSLabel {
+    private _inputView: UIView;
+    private _inputAccessoryView: UIView;
+    private _isInputViewOpened: boolean;
+    private _owner: WeakRef<DropDown>;
+    
+    public static initWithOwner(owner: DropDown): DropDownLabel {
+        let label = <DropDownLabel>DropDownLabel.new();
+        label._owner = new WeakRef(owner);
+        label._isInputViewOpened = false;
+        return label;
+    }
+
+    get inputView(): UIView {
+        return this._inputView;
+    }
+    set inputView(value: UIView) {
+        this._inputView = value;
+    }
+
+    get inputAccessoryView(): UIView {
+        return this._inputAccessoryView;
+    }
+    set inputAccessoryView(value: UIView) {
+        this._inputAccessoryView = value;
+    }
+
+    get canBecomeFirstResponder(): boolean {
+        return true;
+    }
+
+    get canResignFirstResponder(): boolean {
+        return true;
+    }
+
+    public becomeFirstResponder(): boolean {
+        let result = super.becomeFirstResponder();
+        
+        if (result) {
+            if (!this._isInputViewOpened) {
+                let owner = this._owner.get();
+
+                owner.notify({
+                    eventName: common.DropDown.openedEvent,
+                    object: owner
+                });
+            }
+
+            this._isInputViewOpened = true;
+        }
+
+        return result;
+    }
+    
+    public resignFirstResponder(): boolean {
+        let result = super.resignFirstResponder();
+
+        if (result) {
+            this._isInputViewOpened = false;
+        }
+        
+        return result;
+    }
+
+    public touchesEndedWithEvent(touches: NSSet<UITouch>, event: UIEvent) {
+        this.becomeFirstResponder();
+    }
+}    
 
 //#region Styling
 export class DropDownStyler implements style.Styler {
     //#region Font
     private static setFontInternalProperty(dropDown: DropDown, newValue: any, nativeValue?: any) {
-        let ios = <utils.ios.TextUIView>dropDown._textField.ios;
+        let ios = dropDown.ios;
         ios.font = (<Font>newValue).getUIFont(nativeValue);
     }
 
     private static resetFontInternalProperty(dropDown: DropDown, nativeValue: any) {
-        let ios = <utils.ios.TextUIView>dropDown._textField.ios;
+        let ios = dropDown.ios;
         ios.font = nativeValue;
     }
 
     private static getNativeFontInternalValue(dropDown: DropDown): any {
-        let ios = <utils.ios.TextUIView>dropDown._textField.ios;
+        let ios = dropDown.ios;
         return ios.font;
     }
     //#endregion
 
     //#region Text Align
     private static setTextAlignmentProperty(dropDown: DropDown, newValue: any) {
-        utils.ios.setTextAlignment(dropDown._textField.ios, newValue);
+        utils.ios.setTextAlignment(dropDown.ios, newValue);
     }
 
     private static resetTextAlignmentProperty(dropDown: DropDown, nativeValue: any) {
-        let ios = <utils.ios.TextUIView>dropDown._textField.ios;
+        let ios = dropDown.ios;
         ios.textAlignment = nativeValue;
     }
 
     private static getNativeTextAlignmentValue(dropDown: DropDown): any {
-        let ios = <utils.ios.TextUIView>dropDown._textField.ios;
+        let ios = dropDown.ios;
         return ios.textAlignment;
     }
     //#endregion
 
-    //#region  Text Decoration
+    //#region  Text Decoration 
     private static setTextDecorationProperty(dropDown: DropDown, newValue: any) {
-        dropDown._textField.style.textDecoration = newValue;
-
-        // utils.ios.setTextDecorationAndTransform(dropDown._textField, newValue, dropDown.style.textTransform);
+        dropDown._label.style.textDecoration = newValue;
+        (<any>dropDown._label.style)._updateTextDecoration();
     }
 
     private static resetTextDecorationProperty(dropDown: DropDown, nativeValue: any) {
-        dropDown._textField.style.textDecoration = enums.TextDecoration.none;
-        // dropDown._textField.ios.
-        // utils.ios.setTextDecorationAndTransform(dropDown._textField, enums.TextDecoration.none, dropDown.style.textTransform);
+        dropDown._label.style.textDecoration = enums.TextDecoration.none;
+        dropDown._label.style._updateTextDecoration();
     }
     //#endregion
 
     //#region Color
     private static setColorProperty(dropDown: DropDown, newValue: any) {
-        let ios = <utils.ios.TextUIView>dropDown._textField.ios;
-        let pickerView = <UIPickerView>dropDown._listPicker.ios;
+        let dropDownLabel = dropDown._label,
+            pickerView = <UIPickerView>dropDown._listPicker.ios;
 
-        ios.textColor = newValue;
+        dropDownLabel.internalColor = utils.ios.getColor(newValue);
         pickerView.reloadAllComponents();
     }
 
     private static resetColorProperty(dropDown: DropDown, nativeValue: any) {
-        let ios = <utils.ios.TextUIView>dropDown._textField.ios;
-        let pickerView = <UIPickerView>dropDown._listPicker.ios;
+        let dropDownLabel = dropDown._label,
+            pickerView = <UIPickerView>dropDown._listPicker.ios;
 
-        ios.textColor = nativeValue;
+        dropDownLabel.internalColor = utils.ios.getColor(nativeValue);
         pickerView.reloadAllComponents();
     }
 
     private static getNativeColorValue(dropDown: DropDown): any {
-        let ios = <utils.ios.TextUIView>dropDown._textField.ios;
-        return ios.textColor;
+        let dropDownLabel = dropDown._label;
+        return dropDownLabel.internalColor ? dropDownLabel.internalColor.ios : dropDownLabel.ios.textColor;
     }
     //#endregion
 
     //#region Background Color
     private static setBackgroundColorProperty(dropDown: DropDown, newValue: any) {
-        let ios = <UITextView>dropDown._textField.ios;
+        let ios = dropDown.ios;
         let pickerView = <UIPickerView>dropDown._listPicker.ios;
-
+        
         ios.backgroundColor = newValue;
         pickerView.backgroundColor = newValue;
     }
 
     private static resetBackgroundColorProperty(dropDown: DropDown, nativeValue: any) {
-        let ios = <UITextView>dropDown._textField.ios;
+        let ios = dropDown.ios;
         let pickerView = <UIPickerView>dropDown._listPicker.ios;
 
         ios.backgroundColor = nativeValue;
@@ -277,12 +421,12 @@ export class DropDownStyler implements style.Styler {
     }
 
     private static getNativeBackgroundColorValue(dropDown: DropDown): any {
-        let ios = <UITextView>dropDown._textField.ios;
+        let ios = dropDown.ios;
         return ios.backgroundColor;
     }
     //#endregion
 
-    //#region Padding
+    //#region Padding     
     private static setPaddingProperty(dropDown: DropDown, newValue: UIEdgeInsets) {
         DropDownStyler.setPadding(dropDown, newValue);
     }
@@ -297,16 +441,16 @@ export class DropDownStyler implements style.Styler {
             return UIEdgeInsetsFromString(`{${styles.paddingTop},${styles.paddingLeft},${styles.paddingBottom},${styles.paddingRight}}`);
         }
         return UIEdgeInsetsZero;
-    }
+    }  
 
     private static setPadding(dropDown: DropDown, newValue: UIEdgeInsets) {
-        dropDown._textField.style.paddingTop = newValue.top;
-        dropDown._textField.style.paddingRight = newValue.right;
-        dropDown._textField.style.paddingBottom = newValue.bottom;
-        dropDown._textField.style.paddingLeft = newValue.left;
+        dropDown._label.style.paddingTop = newValue.top;
+        dropDown._label.style.paddingRight = newValue.right;
+        dropDown._label.style.paddingBottom = newValue.bottom;
+        dropDown._label.style.paddingLeft = newValue.left;
     }
     //#endregion
-
+  
     public static registerHandlers() {
         style.registerHandler(style.fontInternalProperty,
             new style.StylePropertyChangedHandler(
@@ -315,7 +459,7 @@ export class DropDownStyler implements style.Styler {
                 DropDownStyler.getNativeFontInternalValue
             ),
             "DropDown");
-
+        
         style.registerHandler(style.textAlignmentProperty,
             new style.StylePropertyChangedHandler(
                 DropDownStyler.setTextAlignmentProperty,
@@ -323,14 +467,14 @@ export class DropDownStyler implements style.Styler {
                 DropDownStyler.getNativeTextAlignmentValue
             ),
             "DropDown");
-
+        
         style.registerHandler(style.textDecorationProperty,
             new style.StylePropertyChangedHandler(
                 DropDownStyler.setTextDecorationProperty,
                 DropDownStyler.resetTextDecorationProperty
             ),
             "DropDown");
-
+        
         style.registerHandler(style.colorProperty,
             new style.StylePropertyChangedHandler(
                 DropDownStyler.setColorProperty,
@@ -338,7 +482,7 @@ export class DropDownStyler implements style.Styler {
                 DropDownStyler.getNativeColorValue
             ),
             "DropDown");
-
+        
         style.registerHandler(style.backgroundColorProperty,
             new style.StylePropertyChangedHandler(
                 DropDownStyler.setBackgroundColorProperty,

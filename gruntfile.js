@@ -13,7 +13,7 @@
             "!sample/**/*.*",
             "!bin/**/*.*"
         ],
-        outDir: "dist/package/"
+        outDir: "bin/dist/"
     }
 
     grunt.initConfig({
@@ -26,20 +26,7 @@
             build: {
                 src: localConfig.typeScriptSrc,
                 outDir: localConfig.outDir,
-                options: {
-                    target: "es5",
-                    module: "commonjs",
-                    declaration: false,
-                    noImplicitAny: false,
-                    experimentalDecorators: true,
-                    emitDecoratorMetadata: true,
-                    noEmitHelpers: true,
-                    removeComments: true,
-                    sourceMap: false,
-                    noLib: false,
-                    outDir: "package",
-                    isolatedModules: false
-                }
+                tsconfig: true
             }
         },
         tslint:
