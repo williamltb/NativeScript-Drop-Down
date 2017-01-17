@@ -45,7 +45,7 @@
     "quotemark": [ true, "double" ],
     "radix": true,
     "semicolon": true,
-    "triple-equals": [ true ],
+    "triple-equals": [ false ],
     "variable-name": false,
     "whitespace": [
       true,

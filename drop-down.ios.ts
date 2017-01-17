@@ -52,7 +52,7 @@ export class DropDown extends common.DropDown {
         this._label = new DropDownLabelWrapper(this);
         this._listPicker = new ListPicker();
 
-        (this._listPicker as any)._delegate = DropDownListPickerDelegateImpl.initWithOwner(this);       
+        (this._listPicker as any)._delegate = DropDownListPickerDelegateImpl.initWithOwner(this);
         this._flexToolbarSpace = UIBarButtonItem.alloc().initWithBarButtonSystemItemTargetAction(UIBarButtonSystemItem.FlexibleSpace, null, null);
         this._doneTapDelegate = TapHandler.initWithOwner(new WeakRef(this));
         this._doneButton = UIBarButtonItem.alloc().initWithBarButtonSystemItemTargetAction(UIBarButtonSystemItem.Done, this._doneTapDelegate, "tap");
@@ -96,7 +96,7 @@ export class DropDown extends common.DropDown {
             });
         this.ios.inputView = this._listPicker.ios;
         this._showHideAccessoryView();
-        
+
     }
 
     public onUnloaded() {
@@ -120,18 +120,21 @@ export class DropDown extends common.DropDown {
 
         this._listPicker.items = data.newValue;
 
-        // HACK: This is needed, because in the listpicker module Telerik automatically selects the first item if the current selectedIndex is undefined.         
+        // HACK: This is needed, because in the listpicker module Telerik automatically selects the first item if the current selectedIndex is undefined.
         if (isNothingSelected) {
             this.selectedIndex = null;
         }
     }
 
     public _onHintPropertyChanged(data: dependencyObservable.PropertyChangeData) {
-       this._label.hint = data.newValue;
+        this._label.hint = data.newValue;
     }
 
     public _onSelectedIndexPropertyChanged(data: dependencyObservable.PropertyChangeData) {
         super._onSelectedIndexPropertyChanged(data);
+        if (this._listPicker.items.length === 0) {
+            return;
+        }
         this._listPicker.selectedIndex = data.newValue;
         this._label.text = (this.items && this.items.getItem ? this.items.getItem(data.newValue) : this.items[data.newValue]);
     }
@@ -160,7 +163,7 @@ class DropDownListPickerDelegateImpl extends NSObject implements UIPickerViewDel
     public static ObjCProtocols = [UIPickerViewDelegate];
 
     private _owner: WeakRef<DropDown>;
-    
+
     public static initWithOwner(owner: DropDown): DropDownListPickerDelegateImpl {
         let delegate = <DropDownListPickerDelegateImpl>DropDownListPickerDelegateImpl.new();
         delegate._owner = new WeakRef(owner);
@@ -236,7 +239,7 @@ class DropDownLabelWrapper extends Label {
 
         this._hasText = !types.isNullOrUndefined(value);
         this._ios.text = (actualText === "" ? " " : actualText); // HACK: If empty use <space> so the label does not collapse
-        
+
         this._refreshColor();
     }
 
@@ -269,7 +272,7 @@ class DropDownLabel extends TNSLabel {
     private _inputAccessoryView: UIView;
     private _isInputViewOpened: boolean;
     private _owner: WeakRef<DropDown>;
-    
+
     public static initWithOwner(owner: DropDown): DropDownLabel {
         let label = <DropDownLabel>DropDownLabel.new();
         label._owner = new WeakRef(owner);
@@ -301,7 +304,7 @@ class DropDownLabel extends TNSLabel {
 
     public becomeFirstResponder(): boolean {
         let result = super.becomeFirstResponder();
-        
+
         if (result) {
             if (!this._isInputViewOpened) {
                 let owner = this._owner.get();
@@ -317,21 +320,21 @@ class DropDownLabel extends TNSLabel {
 
         return result;
     }
-    
+
     public resignFirstResponder(): boolean {
         let result = super.resignFirstResponder();
 
         if (result) {
             this._isInputViewOpened = false;
         }
-        
+
         return result;
     }
 
     public touchesEndedWithEvent(touches: NSSet<UITouch>, event: UIEvent) {
         this.becomeFirstResponder();
     }
-}    
+}
 
 //#region Styling
 export class DropDownStyler implements style.Styler {
@@ -368,7 +371,7 @@ export class DropDownStyler implements style.Styler {
     }
     //#endregion
 
-    //#region  Text Decoration 
+    //#region  Text Decoration
     private static setTextDecorationProperty(dropDown: DropDown, newValue: any) {
         dropDown._label.style.textDecoration = newValue;
         (<any>dropDown._label.style)._updateTextDecoration();
@@ -407,7 +410,7 @@ export class DropDownStyler implements style.Styler {
     private static setBackgroundColorProperty(dropDown: DropDown, newValue: any) {
         let ios = dropDown.ios;
         let pickerView = <UIPickerView>dropDown._listPicker.ios;
-        
+
         ios.backgroundColor = newValue;
         pickerView.backgroundColor = newValue;
     }
@@ -426,7 +429,7 @@ export class DropDownStyler implements style.Styler {
     }
     //#endregion
 
-    //#region Padding     
+    //#region Padding
     private static setPaddingProperty(dropDown: DropDown, newValue: UIEdgeInsets) {
         DropDownStyler.setPadding(dropDown, newValue);
     }
@@ -441,7 +444,7 @@ export class DropDownStyler implements style.Styler {
             return UIEdgeInsetsFromString(`{${styles.paddingTop},${styles.paddingLeft},${styles.paddingBottom},${styles.paddingRight}}`);
         }
         return UIEdgeInsetsZero;
-    }  
+    }
 
     private static setPadding(dropDown: DropDown, newValue: UIEdgeInsets) {
         dropDown._label.style.paddingTop = newValue.top;
@@ -450,7 +453,7 @@ export class DropDownStyler implements style.Styler {
         dropDown._label.style.paddingLeft = newValue.left;
     }
     //#endregion
-  
+
     public static registerHandlers() {
         style.registerHandler(style.fontInternalProperty,
             new style.StylePropertyChangedHandler(
@@ -459,7 +462,7 @@ export class DropDownStyler implements style.Styler {
                 DropDownStyler.getNativeFontInternalValue
             ),
             "DropDown");
-        
+
         style.registerHandler(style.textAlignmentProperty,
             new style.StylePropertyChangedHandler(
                 DropDownStyler.setTextAlignmentProperty,
@@ -467,14 +470,14 @@ export class DropDownStyler implements style.Styler {
                 DropDownStyler.getNativeTextAlignmentValue
             ),
             "DropDown");
-        
+
         style.registerHandler(style.textDecorationProperty,
             new style.StylePropertyChangedHandler(
                 DropDownStyler.setTextDecorationProperty,
                 DropDownStyler.resetTextDecorationProperty
             ),
             "DropDown");
-        
+
         style.registerHandler(style.colorProperty,
             new style.StylePropertyChangedHandler(
                 DropDownStyler.setColorProperty,
@@ -482,7 +485,7 @@ export class DropDownStyler implements style.Styler {
                 DropDownStyler.getNativeColorValue
             ),
             "DropDown");
-        
+
         style.registerHandler(style.backgroundColorProperty,
             new style.StylePropertyChangedHandler(
                 DropDownStyler.setBackgroundColorProperty,

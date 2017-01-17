@@ -40,7 +40,7 @@ function onHintPropertyChanged(data: PropertyChangeData) {
 export abstract class DropDown extends View implements definition.DropDown {
     public static openedEvent = "opened";
     public static selectedIndexChangedEvent = "selectedIndexChanged";
-    
+
     public static itemsProperty = new Property(
         "items",
         DROPDOWN,
@@ -72,7 +72,7 @@ export abstract class DropDown extends View implements definition.DropDown {
     );
 
     public accessoryViewVisible;
-    
+
     constructor() {
         super();
     }
@@ -106,6 +106,14 @@ export abstract class DropDown extends View implements definition.DropDown {
         let index = this.selectedIndex;
 
         if (types.isUndefined(index)) {
+            return;
+        }
+
+        if (index == null) {
+            return;
+        }
+
+        if (index >= this.items.length) {
             return;
         }
 
